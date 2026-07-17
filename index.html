@@ -366,6 +366,17 @@
     text-align:left;font-size:10.5px;text-transform:uppercase;letter-spacing:.05em;
     color:var(--ink-faint);border-bottom:1.5px solid var(--ink);padding:7px 8px;font-weight:700;
   }
+  table.assoc th.sortable{cursor:pointer;user-select:none;white-space:nowrap;}
+  table.assoc th.sortable:hover{color:var(--ink);}
+  table.assoc th .sort-ico{display:inline-block;width:10px;font-family:var(--mono);font-size:9px;color:var(--gold);}
+  table.assoc th.sortable[data-active="asc"] .sort-ico::after{content:"▲";}
+  table.assoc th.sortable[data-active="desc"] .sort-ico::after{content:"▼";}
+  tr.filter-row td{padding:4px 8px 8px;border-bottom:1.5px solid var(--ink);}
+  input.col-filter{
+    width:100%;font-family:var(--sans);font-size:11px;color:var(--ink);
+    border:1px solid var(--line);border-radius:6px;padding:4px 7px;background:var(--bg-input);
+  }
+  input.col-filter:focus{border-color:var(--gold);outline:none;}
   table.assoc td{padding:9px 8px;border-bottom:1px solid var(--line-soft);vertical-align:top;}
   table.assoc tr:hover td{background:var(--table-row-hover);}
   .code-badge{font-family:var(--mono);font-weight:700;color:var(--ink);background:var(--line-soft);
@@ -524,14 +535,6 @@
     </div>
   </div>
 
-  <div class="import-banner" id="importBanner">
-    <div class="txt">
-      <h3 data-i18n="bannerTitle">Combinaciones de Producción disponibles</h3>
-      <p id="importBannerText"></p>
-    </div>
-    <button class="btn-gold" id="btnImportProd"></button>
-  </div>
-
   <div class="workspace">
 
     <!-- LEFT: queue + form -->
@@ -642,13 +645,22 @@
       <table class="assoc">
         <thead>
           <tr>
-            <th style="width:8%;" data-i18n="thDivision">División</th>
-            <th style="width:7%;" data-i18n="thProp">Prop.</th>
-            <th style="width:16%;" data-i18n="thAccount">Cuenta</th>
-            <th style="width:16%;" data-i18n="thCC">Centro de Costo</th>
-            <th style="width:28%;" data-i18n="thLine">Línea P&amp;L</th>
-            <th style="width:10%;" data-i18n="thDate">Fecha</th>
+            <th style="width:8%;" class="sortable" data-sort="division"><span data-i18n="thDivision">División</span><i class="sort-ico"></i></th>
+            <th style="width:7%;" class="sortable" data-sort="property"><span data-i18n="thProp">Prop.</span><i class="sort-ico"></i></th>
+            <th style="width:16%;" class="sortable" data-sort="accCode"><span data-i18n="thAccount">Cuenta</span><i class="sort-ico"></i></th>
+            <th style="width:16%;" class="sortable" data-sort="ccCode"><span data-i18n="thCC">Centro de Costo</span><i class="sort-ico"></i></th>
+            <th style="width:28%;" class="sortable" data-sort="lineId"><span data-i18n="thLine">Línea P&amp;L</span><i class="sort-ico"></i></th>
+            <th style="width:10%;" class="sortable" data-sort="createdAt"><span data-i18n="thDate">Fecha</span><i class="sort-ico"></i></th>
             <th style="width:15%;" data-i18n="thActions">Acciones</th>
+          </tr>
+          <tr class="filter-row">
+            <td></td>
+            <td></td>
+            <td><input type="text" class="col-filter" id="colFilterAcc" data-i18n-placeholder="colFilterPlaceholder" placeholder="filtrar…"></td>
+            <td><input type="text" class="col-filter" id="colFilterCc" data-i18n-placeholder="colFilterPlaceholder" placeholder="filtrar…"></td>
+            <td><input type="text" class="col-filter" id="colFilterLine" data-i18n-placeholder="colFilterPlaceholder" placeholder="filtrar…"></td>
+            <td></td>
+            <td></td>
           </tr>
         </thead>
         <tbody id="assocBody"></tbody>
@@ -679,6 +691,14 @@
         <label class="field-label" data-i18n="governanceEmailLabel">Correo de aprobación (gobierno de datos)</label>
         <input type="text" id="governanceEmailInput" class="code-input" style="width:100%;margin-top:4px;" value="jcrespo@royalton.com">
         <p class="master-status" data-i18n="governanceEmailHint">Cada solicitud de cambio se dirige aquí. Cámbialo cuando definan el correo definitivo del proceso de gobierno.</p>
+      </div>
+      <div class="admin-upload-card">
+        <label class="field-label" data-i18n="prodImportLabel">Combinaciones de Producción</label>
+        <p class="master-status" data-i18n="prodImportHint">Se cargan solas la primera vez que se abre la herramienta. Vuelve a importar aquí solo si necesitas re-sincronizar (no duplica lo que ya existe).</p>
+        <p class="master-status" id="prodStatusHOTELS" style="margin-top:8px;"></p>
+        <button class="btn-ghost" id="btnReimportHOTELS" style="margin-top:4px;width:100%;" data-i18n="btnReimport">Reimportar</button>
+        <p class="master-status" id="prodStatusPTC" style="margin-top:10px;"></p>
+        <button class="btn-ghost" id="btnReimportPTC" style="margin-top:4px;width:100%;" data-i18n="btnReimport">Reimportar</button>
       </div>
     </div>
   </details>
@@ -805,6 +825,7 @@ const I18N = {
     statMisalignedLabel: 'Desalineados',
     misalignedChipLabel: '⚠ Desalineado entre propiedades',
     assocSearchPlaceholder: 'Buscar en asociaciones…',
+    colFilterPlaceholder: 'filtrar…',
     thProp: 'Prop.', thAccount: 'Cuenta', thCC: 'Centro de Costo', thLine: 'Línea P&L', thDate: 'Fecha', thActions: 'Acciones',
     emptyNoAssoc: 'Todavía no hay asociaciones guardadas.',
     emptyNoMatch: 'Ninguna asociación coincide con tu búsqueda o filtros.',
@@ -844,6 +865,12 @@ const I18N = {
     approvalRequesterPlaceholder: 'ej. Juan Carlos Crespo',
     governanceEmailLabel: 'Correo de aprobación (gobierno de datos)',
     governanceEmailHint: 'Cada solicitud de cambio se dirige aquí. Cámbialo cuando definan el correo definitivo del proceso de gobierno.',
+    prodImportLabel: 'Combinaciones de Producción',
+    prodImportHint: 'Se cargan solas la primera vez que se abre la herramienta. Vuelve a importar aquí solo si necesitas re-sincronizar (no duplica lo que ya existe).',
+    btnReimport: 'Reimportar',
+    prodStatusLoaded: (label, count) => `${label}: ${count} combinaciones cargadas`,
+    prodStatusEmpty: (label) => `${label}: sin combinaciones cargadas todavía`,
+    confirmReimport: (label) => `¿Reimportar las combinaciones de Producción de ${label}? Lo ya existente no se duplica, solo se agrega o actualiza lo nuevo.`,
     approvalEmailSubject: (acc, cc) => `Aprobación de cambio de mapeo P&L — ${acc} / ${cc}`,
     approvalEmailDivision: 'División', approvalEmailProperty: 'Propiedad',
     approvalEmailAccount: 'Cuenta', approvalEmailCc: 'Centro de Costo',
@@ -929,6 +956,7 @@ const I18N = {
     statMisalignedLabel: 'Misaligned',
     misalignedChipLabel: '⚠ Misaligned across properties',
     assocSearchPlaceholder: 'Search associations…',
+    colFilterPlaceholder: 'filter…',
     thProp: 'Prop.', thAccount: 'Account', thCC: 'Cost Center', thLine: 'P&L Line', thDate: 'Date', thActions: 'Actions',
     emptyNoAssoc: 'No associations saved yet.',
     emptyNoMatch: 'No association matches your search or filters.',
@@ -968,6 +996,12 @@ const I18N = {
     approvalRequesterPlaceholder: 'e.g. Juan Carlos Crespo',
     governanceEmailLabel: 'Approval email (data governance)',
     governanceEmailHint: 'Every change request is addressed here. Update it once the governance process has a definitive address.',
+    prodImportLabel: 'Production combinations',
+    prodImportHint: 'These load automatically the first time the tool is opened. Re-import here only if you need to re-sync (won\'t duplicate what\'s already there).',
+    btnReimport: 'Re-import',
+    prodStatusLoaded: (label, count) => `${label}: ${count} combinations loaded`,
+    prodStatusEmpty: (label) => `${label}: no combinations loaded yet`,
+    confirmReimport: (label) => `Re-import ${label}'s Production combinations? Existing ones won't be duplicated, only new or updated ones are added.`,
     approvalEmailSubject: (acc, cc) => `P&L mapping change approval — ${acc} / ${cc}`,
     approvalEmailDivision: 'Division', approvalEmailProperty: 'Property',
     approvalEmailAccount: 'Account', approvalEmailCc: 'Cost Center',
@@ -1029,7 +1063,7 @@ function applyLang(lang){
   renderQueue();
   renderTree();
   renderBreadcrumb();
-  renderImportBanner();
+  renderProductionStatus();
   renderFilterOptions();
   renderAssociations();
   renderPendingChanges();
@@ -1070,6 +1104,8 @@ let selectedPendingId = null;
 let editingId = null;
 let currentPage = 1;
 const PAGE_SIZE = 100;
+let sortColumn = null;
+let sortDirection = 'asc';
 let skatMeta = null;
 let csksMeta = null;
 let currentDivision = 'HOTELS';
@@ -1166,6 +1202,7 @@ async function init(){
   pendingChanges = Array.isArray(pendingChangesStored) ? pendingChangesStored : [];
   if(govEmailStored) governanceEmail = govEmailStored;
 
+  await autoLoadProductionData();
   const reconciled = reconcileReviewStatuses();
 
   applyTheme(theme === 'dark' ? 'dark' : 'light');
@@ -1181,6 +1218,7 @@ async function init(){
   renderAssociations();
   renderPendingChanges();
   renderMasterStatus();
+  renderProductionStatus();
   updateStats();
   wireEvents();
 
@@ -1225,7 +1263,7 @@ function applyDivision(division, opts){
   populateCcDatalist();
   renderTree();
   renderBreadcrumb();
-  renderImportBanner();
+  renderProductionStatus();
   updateConfirmState();
 }
 
@@ -1861,32 +1899,11 @@ function getProductionDataset(division){
   return division === 'PTC' ? PRODUCTION_IMPORT_PTC : PRODUCTION_IMPORT_HOTELS;
 }
 
-function renderImportBanner(){
-  const banner = document.getElementById('importBanner');
-  if(!DIVISIONS[currentDivision].hasProductionImport){
-    banner.style.display = 'none';
-    return;
-  }
-  banner.style.display = 'flex';
-  const dataset = getProductionDataset(currentDivision);
-  const alreadyImported = associations.some(a => a.source === 'production_import' && a.division === currentDivision);
-  if(alreadyImported){
-    const count = associations.filter(a => a.source === 'production_import' && a.division === currentDivision).length;
-    banner.classList.add('done');
-    document.getElementById('importBannerText').textContent = t('bannerTextDone', count.toLocaleString(locale()));
-    document.getElementById('btnImportProd').textContent = t('btnImportProdAgain');
-  } else {
-    banner.classList.remove('done');
-    document.getElementById('importBannerText').textContent =
-      currentDivision === 'PTC'
-        ? t('bannerTextAvailablePtc', dataset.length.toLocaleString(locale()))
-        : t('bannerTextAvailable', dataset.length.toLocaleString(locale()));
-    document.getElementById('btnImportProd').textContent = t('btnImportProd');
-  }
-}
-
-async function importProductionData(){
-  const division = currentDivision;
+/* Pure computation: merges a division's embedded production dataset into
+   `associations`, deduping by (division, property, account, cost center).
+   Does not touch storage or the DOM — callers decide when to persist/render,
+   so this can run silently for several divisions back-to-back at startup. */
+function runProductionImport(division){
   const dataset = getProductionDataset(division);
   const existingKeys = new Set(associations.map(a => `${a.division}|${a.property}|${a.accCode}|${a.ccCode}`));
   let added = 0, skipped = 0, review = 0;
@@ -1906,17 +1923,52 @@ async function importProductionData(){
     });
     added++;
   });
+  return { added, skipped, review };
+}
 
+/* Runs once at startup: silently preloads each division's production dataset
+   the first time this browser/session doesn't have it yet. No dialogs, no
+   toasts — by the time the person sees the tool, the data is just there. */
+async function autoLoadProductionData(){
+  let touched = false;
+  Object.keys(DIVISIONS).forEach(div => {
+    if(!DIVISIONS[div].hasProductionImport) return;
+    const already = associations.some(a => a.source === 'production_import' && a.division === div);
+    if(!already){
+      runProductionImport(div);
+      touched = true;
+    }
+  });
+  if(touched) await saveJSON('assoc:list', associations);
+  return touched;
+}
+
+/* Deliberate, person-initiated re-sync from the admin panel. Safe to run
+   any time — existing combinations are skipped, never duplicated. */
+async function manualReimport(division){
+  const { added, skipped, review } = runProductionImport(division);
   await saveJSON('assoc:list', associations);
-  renderImportBanner();
+  renderProductionStatus();
   renderFilterOptions();
   renderAssociations();
   updateStats();
-
   const msg = skipped > 0
     ? t('toastImportedSkipped', added.toLocaleString(locale()), skipped.toLocaleString(locale()), review)
     : t('toastImportedOnly', added.toLocaleString(locale()), review);
   showToast(msg, review > 0 ? 'danger' : 'success');
+}
+
+function renderProductionStatus(){
+  Object.keys(DIVISIONS).forEach(div => {
+    if(!DIVISIONS[div].hasProductionImport) return;
+    const el = document.getElementById(`prodStatus${div}`);
+    if(!el) return;
+    const count = associations.filter(a => a.source === 'production_import' && a.division === div).length;
+    const label = DIVISIONS[div].label;
+    el.textContent = count > 0
+      ? t('prodStatusLoaded', label, count.toLocaleString(locale()))
+      : t('prodStatusEmpty', label);
+  });
 }
 
 /* ===================== Associations table ===================== */
@@ -1993,12 +2045,18 @@ function getFilteredAssociations(){
   const divFilter = document.getElementById('filterDivision').value;
   const propFilter = document.getElementById('filterProperty').value;
   const statusFilter = document.getElementById('filterStatus').value;
+  const accFilter = normalize(document.getElementById('colFilterAcc').value.trim());
+  const ccFilter = normalize(document.getElementById('colFilterCc').value.trim());
+  const lineFilter = normalize(document.getElementById('colFilterLine').value.trim());
 
-  let rows = associations.slice().sort((a,b) => b.createdAt - a.createdAt);
+  let rows = associations.slice();
   if(divFilter) rows = rows.filter(r => r.division === divFilter);
   if(propFilter) rows = rows.filter(r => r.property === propFilter);
   if(statusFilter === 'misaligned') rows = rows.filter(r => misalignmentMap[r.id]);
   else if(statusFilter) rows = rows.filter(r => r.status === statusFilter);
+  if(accFilter) rows = rows.filter(r => normalize(r.accCode).includes(accFilter) || normalize(r.accDesc).includes(accFilter));
+  if(ccFilter) rows = rows.filter(r => normalize(r.ccCode).includes(ccFilter) || normalize(r.ccDesc).includes(ccFilter));
+  if(lineFilter) rows = rows.filter(r => normalize(r.lineId).includes(lineFilter) || normalize(r.lineName).includes(lineFilter));
   if(q){
     rows = rows.filter(r =>
       normalize(r.property).includes(q) ||
@@ -2008,6 +2066,18 @@ function getFilteredAssociations(){
       normalize(r.lineId).includes(q)
     );
   }
+
+  if(sortColumn){
+    const dir = sortDirection === 'asc' ? 1 : -1;
+    rows.sort((a, b) => {
+      let av = a[sortColumn], bv = b[sortColumn];
+      if(sortColumn === 'createdAt'){ av = av || 0; bv = bv || 0; return (av - bv) * dir; }
+      av = (av || '').toString(); bv = (bv || '').toString();
+      return av.localeCompare(bv, undefined, {numeric:true, sensitivity:'base'}) * dir;
+    });
+  } else {
+    rows.sort((a,b) => b.createdAt - a.createdAt);
+  }
   return rows;
 }
 
@@ -2016,6 +2086,11 @@ function renderAssociations(){
   const empty = document.getElementById('assocEmpty');
   refreshMisalignments();
   const allFiltered = getFilteredAssociations();
+
+  document.querySelectorAll('th.sortable').forEach(th => {
+    if(th.getAttribute('data-sort') === sortColumn) th.setAttribute('data-active', sortDirection);
+    else th.removeAttribute('data-active');
+  });
 
   document.getElementById('assocCount').textContent = associations.length;
   document.getElementById('statMisaligned').textContent = Object.keys(misalignmentMap).length;
@@ -2128,7 +2203,7 @@ async function deleteAssociation(id){
     orphaned.length ? saveJSON('governance:pending-changes', pendingChanges, true) : Promise.resolve()
   ]);
   if(editingId === id) clearForm();
-  renderImportBanner();
+  renderProductionStatus();
   renderFilterOptions();
   renderAssociations();
   renderPendingChanges();
@@ -2209,13 +2284,13 @@ function wireEvents(){
     updateConfirmState();
   });
 
-  document.getElementById('btnImportProd').addEventListener('click', () => {
-    const already = associations.some(a => a.source === 'production_import' && a.division === currentDivision);
-    const dataset = getProductionDataset(currentDivision);
-    const msg = already
-      ? t('confirmImportAgain')
-      : t('confirmImportFirst', dataset.length.toLocaleString(locale()));
-    if(confirm(msg)) importProductionData();
+  ['HOTELS', 'PTC'].forEach(div => {
+    const btn = document.getElementById(`btnReimport${div}`);
+    if(!btn) return;
+    btn.addEventListener('click', () => {
+      const label = DIVISIONS[div].label;
+      if(confirm(t('confirmReimport', label))) manualReimport(div);
+    });
   });
 
   document.getElementById('langToggle').addEventListener('click', e => {
@@ -2279,6 +2354,22 @@ function wireEvents(){
   document.getElementById('filterDivision').addEventListener('change', () => { currentPage = 1; renderAssociations(); });
   document.getElementById('filterProperty').addEventListener('change', () => { currentPage = 1; renderAssociations(); });
   document.getElementById('filterStatus').addEventListener('change', () => { currentPage = 1; renderAssociations(); });
+  ['colFilterAcc','colFilterCc','colFilterLine'].forEach(id => {
+    document.getElementById(id).addEventListener('input', () => { currentPage = 1; renderAssociations(); });
+  });
+  document.querySelectorAll('th.sortable').forEach(th => {
+    th.addEventListener('click', () => {
+      const col = th.getAttribute('data-sort');
+      if(sortColumn === col){
+        sortDirection = sortDirection === 'asc' ? 'desc' : 'asc';
+      } else {
+        sortColumn = col;
+        sortDirection = col === 'createdAt' ? 'desc' : 'asc';
+      }
+      currentPage = 1;
+      renderAssociations();
+    });
+  });
 
   document.getElementById('assocBody').addEventListener('click', e => {
     const editBtn = e.target.closest('[data-edit]');
