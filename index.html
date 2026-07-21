@@ -1091,6 +1091,47 @@ async function saveJSON(key, value, shared=false){
     return false;
   }
 }
+async function deleteKey(key, shared=false){
+  try{ await window.storage.delete(key, shared); }catch(e){ /* key may not exist, ignore */ }
+}
+
+/* assoc:list can easily grow past the 5MB-per-key storage limit once real
+   production volumes are loaded (17k+ rows ≈ 6-7MB as a single JSON blob) —
+   that silently fails to save with no visible error. Shard it across several
+   keys well under the limit and reassemble transparently on read. */
+const ASSOC_SHARD_SIZE = 2000;
+let lastAssocShardCount = 0;
+
+async function saveAssociations(){
+  const shards = [];
+  for(let i = 0; i < associations.length; i += ASSOC_SHARD_SIZE){
+    shards.push(associations.slice(i, i + ASSOC_SHARD_SIZE));
+  }
+  if(shards.length === 0) shards.push([]);
+  await Promise.all(shards.map((chunk, i) => saveJSON(`assoc:list:${i}`, chunk)));
+  if(lastAssocShardCount > shards.length){
+    const cleanup = [];
+    for(let i = shards.length; i < lastAssocShardCount; i++) cleanup.push(deleteKey(`assoc:list:${i}`));
+    await Promise.all(cleanup);
+  }
+  lastAssocShardCount = shards.length;
+  await saveJSON('assoc:list:meta', { shardCount: shards.length });
+  await deleteKey('assoc:list'); // clean up the old single-blob format if present
+}
+
+async function loadAssociations(){
+  const meta = await loadJSON('assoc:list:meta', null);
+  if(meta && Number.isInteger(meta.shardCount)){
+    const shards = await Promise.all(
+      Array.from({length: meta.shardCount}, (_, i) => loadJSON(`assoc:list:${i}`, []))
+    );
+    lastAssocShardCount = meta.shardCount;
+    return shards.flat();
+  }
+  // backward compatibility with the old single-key format
+  const legacy = await loadJSON('assoc:list', []);
+  return Array.isArray(legacy) ? legacy : [];
+}
 
 /* ===================== State ===================== */
 let pending = [];       // [{id, division, property, accCode, accDesc, ccCode, ccDesc}]
@@ -1183,7 +1224,7 @@ async function init(){
 
   const [p, a, cc, lang, theme, division, skatStored, csksStored, pendingChangesStored, govEmailStored] = await Promise.all([
     loadJSON('assoc:pending', []),
-    loadJSON('assoc:list', []),
+    loadAssociations(),
     loadJSON('assoc:known-cc', []),
     loadJSON('assoc:lang', 'es'),
     loadJSON('assoc:theme', 'light'),
@@ -1223,7 +1264,7 @@ async function init(){
   wireEvents();
 
   if(reconciled > 0){
-    await saveJSON('assoc:list', associations);
+    await saveAssociations();
     showToast(t('toastReconciled', reconciled), 'success');
   }
 }
@@ -1422,7 +1463,7 @@ async function handleMasterUpload(file, type){
 
     const changed = reconcileReviewStatuses();
     if(changed > 0){
-      await saveJSON('assoc:list', associations);
+      await saveAssociations();
       renderAssociations();
     }
     updateStats();
@@ -1671,7 +1712,7 @@ async function confirmAssociation(){
   }
 
   await Promise.all([
-    saveJSON('assoc:list', associations),
+    saveAssociations(),
     saveJSON('assoc:pending', pending),
     saveJSON('assoc:known-cc', knownCC)
   ]);
@@ -1817,7 +1858,7 @@ async function approveChange(id){
   change.status = 'approved';
   change.resolvedAt = Date.now();
   await Promise.all([
-    saveJSON('assoc:list', associations),
+    saveAssociations(),
     saveJSON('governance:pending-changes', pendingChanges, true)
   ]);
   renderPendingChanges();
@@ -1939,7 +1980,7 @@ async function autoLoadProductionData(){
       touched = true;
     }
   });
-  if(touched) await saveJSON('assoc:list', associations);
+  if(touched) await saveAssociations();
   return touched;
 }
 
@@ -1947,7 +1988,7 @@ async function autoLoadProductionData(){
    any time — existing combinations are skipped, never duplicated. */
 async function manualReimport(division){
   const { added, skipped, review } = runProductionImport(division);
-  await saveJSON('assoc:list', associations);
+  await saveAssociations();
   renderProductionStatus();
   renderFilterOptions();
   renderAssociations();
@@ -2199,7 +2240,7 @@ async function deleteAssociation(id){
   const orphaned = pendingChanges.filter(c => c.associationId === id && c.status === 'pending');
   orphaned.forEach(c => { c.status = 'rejected'; c.resolvedAt = Date.now(); });
   await Promise.all([
-    saveJSON('assoc:list', associations),
+    saveAssociations(),
     orphaned.length ? saveJSON('governance:pending-changes', pendingChanges, true) : Promise.resolve()
   ]);
   if(editingId === id) clearForm();
