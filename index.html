@@ -1210,7 +1210,7 @@ async function detectStorageMode(){
   if(storageMode) return storageMode;
   try{
     if(window.storage && typeof window.storage.set === 'function'){
-      const probeKey = '__storage_probe__';
+      const probeKey = '_storage_probe_';
       const ok = await withRetry(async () => {
         const setRes = await window.storage.set(probeKey, JSON.stringify({ ok: true }), false);
         if(!setRes) throw new Error('probe set failed');
@@ -1226,7 +1226,7 @@ async function detectStorageMode(){
   }catch(e){ /* window.storage genuinely isn't usable here — fall through */ }
   try{
     const ok = await withRetry(async () => {
-      const ref = fbDocRef('__storage_probe__');
+      const ref = fbDocRef('_storage_probe_');
       await ref.set({ value: JSON.stringify({ ok: true }) });
       const snap = await ref.get();
       if(!snap.exists) throw new Error('firestore probe failed');
