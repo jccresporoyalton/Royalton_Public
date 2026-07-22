@@ -1341,11 +1341,17 @@ async function saveAssociations(){
 async function loadAssociations(){
   const meta = await loadJSON('assoc:list:meta', null);
   if(meta && Number.isInteger(meta.shardCount)){
-    const shards = [];
-    for(let i = 0; i < meta.shardCount; i++){
-      shards.push(await loadJSON(`assoc:list:${i}`, []));
-    }
     lastAssocShardCount = meta.shardCount;
+    const mode = await detectStorageMode();
+    const shardKeys = Array.from({length: meta.shardCount}, (_, i) => `assoc:list:${i}`);
+    if(mode === 'native'){
+      // window.storage rate-limits bursts — keep this path sequential.
+      const shards = [];
+      for(const key of shardKeys) shards.push(await loadJSON(key, []));
+      return shards.flat();
+    }
+    // Firestore/IndexedDB handle concurrent reads fine — parallelize.
+    const shards = await Promise.all(shardKeys.map(key => loadJSON(key, [])));
     return shards.flat();
   }
   // backward compatibility with the old single-key format
@@ -1443,17 +1449,38 @@ async function init(){
     });
   });
 
-  const p = await loadJSON('assoc:pending', []);
-  const a = await loadAssociations();
-  const cc = await loadJSON('assoc:known-cc', []);
-  const lang = await loadJSON('assoc:lang', 'es');
-  const theme = await loadJSON('assoc:theme', 'light');
-  const division = await loadJSON('assoc:division', 'HOTELS');
-  const skatStored = await loadJSON('master:skat', null, true);
-  const csksStored = await loadJSON('master:csks', null, true);
-  const pendingChangesStored = await loadJSON('governance:pending-changes', [], true);
-  const govEmailStored = await loadJSON('governance:email', null, true);
-  const zplStored = await loadJSON('production:HOTELS', null, true);
+  const mode = await detectStorageMode();
+  let p, a, cc, lang, theme, division, skatStored, csksStored, pendingChangesStored, govEmailStored, zplStored;
+  if(mode === 'native'){
+    // window.storage rate-limits bursts — keep this path sequential.
+    p = await loadJSON('assoc:pending', []);
+    a = await loadAssociations();
+    cc = await loadJSON('assoc:known-cc', []);
+    lang = await loadJSON('assoc:lang', 'es');
+    theme = await loadJSON('assoc:theme', 'light');
+    division = await loadJSON('assoc:division', 'HOTELS');
+    skatStored = await loadJSON('master:skat', null, true);
+    csksStored = await loadJSON('master:csks', null, true);
+    pendingChangesStored = await loadJSON('governance:pending-changes', [], true);
+    govEmailStored = await loadJSON('governance:email', null, true);
+    zplStored = await loadJSON('production:HOTELS', null, true);
+  }else{
+    // Firestore/IndexedDB handle concurrent reads fine — parallelize so the
+    // first load doesn't take a dozen sequential round trips before rendering.
+    [p, a, cc, lang, theme, division, skatStored, csksStored, pendingChangesStored, govEmailStored, zplStored] = await Promise.all([
+      loadJSON('assoc:pending', []),
+      loadAssociations(),
+      loadJSON('assoc:known-cc', []),
+      loadJSON('assoc:lang', 'es'),
+      loadJSON('assoc:theme', 'light'),
+      loadJSON('assoc:division', 'HOTELS'),
+      loadJSON('master:skat', null, true),
+      loadJSON('master:csks', null, true),
+      loadJSON('governance:pending-changes', [], true),
+      loadJSON('governance:email', null, true),
+      loadJSON('production:HOTELS', null, true)
+    ]);
+  }
   pending = Array.isArray(p) ? p : [];
   associations = Array.isArray(a) ? a : [];
   knownCC = Array.isArray(cc) ? cc : [];
