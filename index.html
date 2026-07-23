@@ -518,6 +518,12 @@
   #loadOverlay .load-brand{
     color:var(--ink-faint);font-size:11px;text-transform:uppercase;letter-spacing:.08em;
   }
+  .sync-indicator{ display:flex; align-items:center; gap:6px; }
+  .sync-spinner{
+    display:inline-block;width:11px;height:11px;border-radius:50%;
+    border:2px solid var(--line);border-top-color:var(--gold);
+    animation:loadspin .8s linear infinite;
+  }
 </style>
 </head>
 <body>
@@ -624,6 +630,9 @@
       <div class="breadcrumb" id="breadcrumb"><span class="placeholder" data-i18n="breadcrumbPlaceholder">Ninguna línea seleccionada todavía</span></div>
       <div class="tree-scroll"><ul class="tree" id="treeRoot"></ul></div>
       <button class="btn-primary" id="btnConfirm" disabled data-i18n="btnConfirm">Confirmar asociación</button>
+      <p class="sync-indicator" id="syncIndicator" style="display:none;font-size:12px;margin-top:6px;color:var(--ink-faint);">
+        <span class="sync-spinner" aria-hidden="true"></span> <span id="syncIndicatorText"></span>
+      </p>
     </div>
   </div>
 
@@ -1415,6 +1424,11 @@ async function deleteKey(key, shared=false){
 // time before this needs revisiting.
 const ASSOC_SHARD_SIZE = 1500;
 let lastAssocShardCount = 0;
+// Cache of each shard's last-written JSON string, so saveAssociations() can
+// skip re-uploading shards that didn't change. Confirming a single
+// association was re-uploading the entire ~6MB dataset (all 12 shards)
+// every time — this cuts it down to just the shard(s) that actually moved.
+let lastSavedShardJSON = [];
 /* If Firestore's metadata says N shards should exist but the load comes
    back with zero records, that's almost certainly a transient read failure
    (or two loads racing each other) — NOT a fresh, never-used database. This
@@ -1429,25 +1443,47 @@ async function saveAssociations(){
     shards.push(associations.slice(i, i + ASSOC_SHARD_SIZE));
   }
   if(shards.length === 0) shards.push([]);
+  const shardJSON = shards.map(s => JSON.stringify(s));
   const staleShardKeys = lastAssocShardCount > shards.length
     ? Array.from({length: lastAssocShardCount - shards.length}, (_, i) => `assoc:list:${shards.length + i}`)
     : [];
   const mode = await detectStorageMode();
   if(mode === 'firebase'){
-    // Single atomic commit: every shard + the updated meta + any now-stale
-    // shard deletions land together, or none of them do.
-    const sets = shards.map((shard, i) => ({ key: `assoc:list:${i}`, value: shard }));
-    sets.push({ key: 'assoc:list:meta', value: { shardCount: shards.length } });
-    await fbBatchWrite(sets, [...staleShardKeys, 'assoc:list']);
+    // Only shards whose serialized content actually changed get re-sent —
+    // still one atomic commit, just a much smaller one in the common case
+    // of adding/editing a single association.
+    const changedIndexes = shardJSON
+      .map((json, i) => (json !== lastSavedShardJSON[i] ? i : -1))
+      .filter(i => i !== -1);
+    const sets = changedIndexes.map(i => ({ key: `assoc:list:${i}`, value: shards[i] }));
+    if(changedIndexes.length > 0 || shards.length !== lastAssocShardCount){
+      sets.push({ key: 'assoc:list:meta', value: { shardCount: shards.length } });
+    }
+    if(sets.length > 0 || staleShardKeys.length > 0){
+      await fbBatchWrite(sets, [...staleShardKeys, 'assoc:list']);
+    }
   }else{
     for(let i = 0; i < shards.length; i++){
-      await saveJSON(`assoc:list:${i}`, shards[i]);
+      if(shardJSON[i] !== lastSavedShardJSON[i]) await saveJSON(`assoc:list:${i}`, shards[i]);
     }
     for(const key of staleShardKeys) await deleteKey(key);
     await saveJSON('assoc:list:meta', { shardCount: shards.length });
     await deleteKey('assoc:list'); // clean up the old single-blob format if present
   }
   lastAssocShardCount = shards.length;
+  lastSavedShardJSON = shardJSON;
+}
+/* Saves race if two confirmations fire close together — each one reads
+   `associations` at call time, so whichever commit lands last would win
+   with a snapshot that might not include the other's change. Chaining every
+   save onto this queue forces them to run one after another instead. */
+let saveAssociationsQueue = Promise.resolve();
+function queueSaveAssociations(){
+  const run = saveAssociationsQueue.then(() => saveAssociations());
+  // Keep the queue alive even if this particular save fails, so later saves
+  // still get a turn — but let the caller's own await see the rejection.
+  saveAssociationsQueue = run.catch(() => {});
+  return run;
 }
 
 async function loadAssociations(){
@@ -1462,6 +1498,8 @@ async function loadAssociations(){
       // treat this as a failed/raced read, not "database is empty".
       assocLoadLooksIncomplete = true;
       console.error(`loadAssociations: metadata expected ${meta.shardCount} shard(s) but all came back empty — likely a failed or raced read, not a genuinely empty dataset.`);
+    }else{
+      lastSavedShardJSON = shards.map(s => JSON.stringify(s));
     }
     return flat;
   }
@@ -1665,7 +1703,7 @@ async function init(){
   wireEvents();
 
   if(reconciled > 0){
-    await saveAssociations();
+    await queueSaveAssociations();
     showToast(t('toastReconciled', reconciled), 'success');
   }
   hideLoadOverlay();
@@ -1865,7 +1903,7 @@ async function handleMasterUpload(file, type){
 
     const changed = reconcileReviewStatuses();
     if(changed > 0){
-      await saveAssociations();
+      await queueSaveAssociations();
       renderAssociations();
     }
     updateStats();
@@ -1948,7 +1986,7 @@ async function handleZplMappingUpload(file){
     PRODUCTION_IMPORT_HOTELS = parsed;
     zplMappingMeta = { filename: file.name, count: parsed.length, updatedAt: Date.now() };
     await saveJSON('production:HOTELS', { meta: zplMappingMeta, data: parsed }, true);
-    await saveAssociations();
+    await queueSaveAssociations();
 
     if(changes.length > 0){
       await queueBulkChange('HOTELS', changes,
@@ -2160,6 +2198,22 @@ function updateConfirmState(){
   btn.textContent = editingId ? t('btnConfirmEditing') : t('btnConfirm');
 }
 
+let activeSyncCount = 0;
+function beginSync(label){
+  activeSyncCount++;
+  const el = document.getElementById('syncIndicator');
+  const textEl = document.getElementById('syncIndicatorText');
+  if(el){ el.style.display = 'flex'; }
+  if(textEl){ textEl.textContent = label || (currentLang === 'en' ? 'Saving…' : 'Guardando…'); }
+}
+function endSync(){
+  activeSyncCount = Math.max(0, activeSyncCount - 1);
+  if(activeSyncCount === 0){
+    const el = document.getElementById('syncIndicator');
+    if(el) el.style.display = 'none';
+  }
+}
+
 async function confirmAssociation(){
   const requiresProperty = DIVISIONS[currentDivision].hasProperty;
   const property = document.getElementById('inProperty').value.trim().toUpperCase();
@@ -2219,15 +2273,33 @@ async function confirmAssociation(){
     pending = pending.filter(p => p.id !== selectedPendingId);
   }
 
-  await saveAssociations();
-  await saveJSON('assoc:pending', pending);
-  await saveJSON('assoc:known-cc', knownCC);
-
+  // Update the UI immediately — the record already exists in memory, so
+  // there's no reason to wait on the network round trip before the pending
+  // queue clears, the table updates, and the form resets for the next entry.
   clearForm();
   renderQueue();
   renderFilterOptions();
   renderAssociations();
   updateStats();
+
+  // Save in the background; a small indicator shows while it's in flight
+  // instead of blocking the UI, but stays serialized (queueSaveAssociations)
+  // so two quick confirmations can't overwrite each other.
+  beginSync(currentLang === 'en' ? 'Syncing…' : 'Sincronizando…');
+  (async () => {
+    try{
+      await queueSaveAssociations();
+      await saveJSON('assoc:pending', pending);
+      await saveJSON('assoc:known-cc', knownCC);
+    }catch(e){
+      console.error('Background save failed:', e);
+      showToast(currentLang === 'en'
+        ? 'Could not sync to shared storage — check your connection and try again.'
+        : 'No se pudo sincronizar con el almacenamiento compartido — revisa tu conexión e intenta de nuevo.', 'danger');
+    }finally{
+      endSync();
+    }
+  })();
 }
 
 function clearForm(){
@@ -2429,7 +2501,7 @@ async function approveChange(id){
 
   change.status = 'approved';
   change.resolvedAt = Date.now();
-  await saveAssociations();
+  await queueSaveAssociations();
   await saveJSON('governance:pending-changes', pendingChanges, true);
   renderPendingChanges();
   renderFilterOptions();
@@ -2567,7 +2639,7 @@ async function autoLoadProductionData(){
       touched = true;
     }
   });
-  if(touched) await saveAssociations();
+  if(touched) await queueSaveAssociations();
   return touched;
 }
 
@@ -2590,7 +2662,7 @@ async function queueBulkChange(division, changes, justification, sourceLabel){
    any time — existing combinations are never silently overwritten. */
 async function manualReimport(division){
   const { added, review, changes } = runProductionImport(division);
-  await saveAssociations();
+  await queueSaveAssociations();
   if(changes.length > 0){
     await queueBulkChange(division, changes,
       t('reimportBulkJustification', DIVISIONS[division].label, new Date().toLocaleDateString(locale())),
@@ -2855,7 +2927,7 @@ async function deleteAssociation(id){
   associations = associations.filter(a => a.id !== id);
   const orphaned = pendingChanges.filter(c => c.associationId === id && c.status === 'pending');
   orphaned.forEach(c => { c.status = 'rejected'; c.resolvedAt = Date.now(); });
-  await saveAssociations();
+  await queueSaveAssociations();
   if(orphaned.length) await saveJSON('governance:pending-changes', pendingChanges, true);
   if(editingId === id) clearForm();
   renderProductionStatus();
