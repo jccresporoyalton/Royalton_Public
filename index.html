@@ -800,6 +800,29 @@ function fbDocRef(key){
    Firestore's 'in' query lets us fetch up to 30 docs by ID in one round
    trip; this is the difference between the tool feeling instant and
    feeling frozen on first load. */
+/* Writes/deletes multiple docs as a single atomic Firestore commit. This is
+   the actual fix for the recurring corruption where assoc:list:meta says
+   N shards exist but some/all of assoc:list:0..N-1 are missing: previously
+   saveAssociations() wrote each shard with its own separate network call,
+   so a page navigation, a second concurrent save, or any interruption
+   mid-sequence could leave meta and shards disagreeing. A batch commit is
+   all-or-nothing — there's no way to end up with half the writes applied. */
+async function fbBatchWrite(sets, deletes){
+  const db = getFirestore();
+  await withRetry(() => {
+    // WriteBatch instances are single-use — build a fresh one on every
+    // attempt, otherwise a retry after a transient failure throws
+    // "write batch can no longer be used after commit()".
+    const batch = db.batch();
+    for(const {key, value} of sets){
+      batch.set(fbDocRef(key), { value: JSON.stringify(value), updatedAt: Date.now() });
+    }
+    for(const key of (deletes || [])){
+      batch.delete(fbDocRef(key));
+    }
+    return batch.commit();
+  });
+}
 async function fbGetMany(keys){
   if(keys.length === 0) return {};
   const db = getFirestore();
@@ -1384,7 +1407,13 @@ async function deleteKey(key, shared=false){
    keys well under the limit and reassemble transparently on read. Shards are
    written and read ONE AT A TIME (never Promise.all) — firing them all at
    once is exactly what triggers the rate-limit errors above. */
-const ASSOC_SHARD_SIZE = 6000;
+// Firestore hard-caps a single document at 1MiB. Records average ~370 bytes,
+// so 6000/shard (the old value) produced ~2.2MB shards that Firestore
+// silently rejected on write — this was the actual root cause behind the
+// repeated "meta says N shards exist but they don't" corruption. 1500/shard
+// keeps each one around ~550KB, with real margin for records growing over
+// time before this needs revisiting.
+const ASSOC_SHARD_SIZE = 1500;
 let lastAssocShardCount = 0;
 /* If Firestore's metadata says N shards should exist but the load comes
    back with zero records, that's almost certainly a transient read failure
@@ -1400,15 +1429,25 @@ async function saveAssociations(){
     shards.push(associations.slice(i, i + ASSOC_SHARD_SIZE));
   }
   if(shards.length === 0) shards.push([]);
-  for(let i = 0; i < shards.length; i++){
-    await saveJSON(`assoc:list:${i}`, shards[i]);
-  }
-  if(lastAssocShardCount > shards.length){
-    for(let i = shards.length; i < lastAssocShardCount; i++) await deleteKey(`assoc:list:${i}`);
+  const staleShardKeys = lastAssocShardCount > shards.length
+    ? Array.from({length: lastAssocShardCount - shards.length}, (_, i) => `assoc:list:${shards.length + i}`)
+    : [];
+  const mode = await detectStorageMode();
+  if(mode === 'firebase'){
+    // Single atomic commit: every shard + the updated meta + any now-stale
+    // shard deletions land together, or none of them do.
+    const sets = shards.map((shard, i) => ({ key: `assoc:list:${i}`, value: shard }));
+    sets.push({ key: 'assoc:list:meta', value: { shardCount: shards.length } });
+    await fbBatchWrite(sets, [...staleShardKeys, 'assoc:list']);
+  }else{
+    for(let i = 0; i < shards.length; i++){
+      await saveJSON(`assoc:list:${i}`, shards[i]);
+    }
+    for(const key of staleShardKeys) await deleteKey(key);
+    await saveJSON('assoc:list:meta', { shardCount: shards.length });
+    await deleteKey('assoc:list'); // clean up the old single-blob format if present
   }
   lastAssocShardCount = shards.length;
-  await saveJSON('assoc:list:meta', { shardCount: shards.length });
-  await deleteKey('assoc:list'); // clean up the old single-blob format if present
 }
 
 async function loadAssociations(){
