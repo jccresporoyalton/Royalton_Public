@@ -556,7 +556,7 @@
       <div class="mini-stat" id="statReviewWrap" style="display:none;"><span data-i18n="statReviewLabel">Por revisar</span><b id="statReview" style="color:var(--danger);">0</b></div>
       <div class="mini-stat" id="statMisalignedWrap" style="display:none;"><span data-i18n="statMisalignedLabel">Desalineados</span><b id="statMisaligned" style="color:var(--misalign);">0</b></div>
       <div class="stamp"><b id="statAssoc">0</b><span data-i18n="stampLabel">Asociadas</span></div>
-      <button class="btn-export" id="btnExportProd" data-i18n="btnExportProd">Exportar CSV ↓</button>
+      <button class="btn-export" id="btnExportProd" data-i18n="btnExportProd">Exportar XLSX ↓</button>
     </div>
   </header>
 
@@ -731,7 +731,7 @@
       </div>
       <div class="admin-upload-card">
         <label class="field-label" data-i18n="zplUploadLabel">Mapeo Hoteles + PTC — tabla SAP ZPL_NEW_MAPPING</label>
-        <p class="master-status" data-i18n="zplUploadHint">Export de la transacción SE16N (Property Code, G/L Account From, Cost Center, Priority, Report Line). Un solo archivo cubre Hoteles (PLB/WCA) y Prime Travelers Club (PTC). Hoteles: las combinaciones nuevas se agregan directo, las que cambian de línea van a aprobación. PTC: cada carga reemplaza por completo las combinaciones existentes con las de este archivo.</p>
+        <p class="master-status" data-i18n="zplUploadHint">Export de la transacción SE16N (Property Code, G/L Account From, Cost Center, Priority, Report Line). Un solo archivo cubre Hoteles (PLB/WCA) y Prime Travelers Club (PTC). En ambas divisiones: las combinaciones nuevas se agregan directo, las que cambian de línea van a aprobación.</p>
         <input type="file" id="uploadZplMapping" accept=".xlsx,.xls" style="margin-top:8px;">
         <p class="master-status" id="zplMappingStatus" style="margin-top:8px;"></p>
         <p class="master-status" id="zplMappingStatusPtc" style="margin-top:4px;"></p>
@@ -891,7 +891,7 @@ const I18N = {
     statPendingLabel: 'Pendientes',
     statReviewLabel: 'Por revisar',
     stampLabel: 'Asociadas',
-    btnExportProd: 'Exportar CSV ↓',
+    btnExportProd: 'Exportar XLSX ↓',
     bannerTitle: 'Combinaciones de Producción disponibles',
     bannerTextAvailable: n => `PLB · Paraíso de la Bonita y WCA · Westin Cancún — ${n} combinaciones GL Account × Cost Center ya mapeadas en el sistema actual.`,
     bannerTextAvailablePtc: n => `${n} combinaciones Cuenta × Centro de Costo del mapeo manual actual de PTC.`,
@@ -997,18 +997,18 @@ const I18N = {
     governanceEmailLabel: 'Correo de aprobación (gobierno de datos)',
     governanceEmailHint: 'Cada solicitud de cambio se dirige aquí. Cámbialo cuando definan el correo definitivo del proceso de gobierno.',
     zplUploadLabel: 'Mapeo Hoteles + PTC — tabla SAP ZPL_NEW_MAPPING',
-    zplUploadHint: 'Export de la transacción SE16N (Property Code, G/L Account From, Cost Center, Priority, Report Line). Un solo archivo cubre Hoteles (PLB/WCA) y Prime Travelers Club (PTC). Hoteles: las combinaciones nuevas se agregan directo, las que cambian de línea van a aprobación. PTC: cada carga reemplaza por completo las combinaciones existentes con las de este archivo.',
+    zplUploadHint: 'Export de la transacción SE16N (Property Code, G/L Account From, Cost Center, Priority, Report Line). Un solo archivo cubre Hoteles (PLB/WCA) y Prime Travelers Club (PTC). En ambas divisiones: las combinaciones nuevas se agregan directo, las que cambian de línea van a aprobación.',
     zplStatusDefault: (count) => `Usando el mapeo inicial incluido en la herramienta · ${count} combinaciones.`,
     masterStatusLinePtc: (count, date, filename) => `PTC: ${count} códigos cargados · actualizado ${date} · ${filename}`,
     zplStatusDefaultPtc: (count) => `PTC: usando el mapeo inicial incluido en la herramienta · ${count} combinaciones.`,
     confirmZplUpload: (total, added, changed) => `Archivo con ${total} combinaciones.\n\n• ${added} son nuevas y se agregarán directo.\n• ${changed} ya existen con otra línea P&L y se mandarán a aprobación.\n\n¿Continuar?`,
-    confirmZplUploadPtc: (hotelsTotal, hotelsAdded, hotelsChanged, ptcTotal) => `Archivo con ${hotelsTotal + ptcTotal} combinaciones (${hotelsTotal} Hoteles + ${ptcTotal} PTC).\n\nHoteles: ${hotelsAdded} nuevas se agregarán directo, ${hotelsChanged} cambios se mandarán a aprobación.\n\nPTC: las ${ptcTotal} combinaciones de este archivo REEMPLAZARÁN por completo las asociaciones PTC actuales — cualquier combinación PTC que no esté en este archivo se eliminará.\n\n¿Continuar?`,
+    confirmZplUploadBoth: (hotelsTotal, hotelsAdded, hotelsChanged, ptcTotal, ptcAdded, ptcChanged) => `Archivo con ${hotelsTotal + ptcTotal} combinaciones (${hotelsTotal} Hoteles + ${ptcTotal} PTC).\n\nHoteles: ${hotelsAdded} nuevas se agregarán directo, ${hotelsChanged} cambios se mandarán a aprobación.\n\nPTC: ${ptcAdded} nuevas se agregarán directo, ${ptcChanged} cambios se mandarán a aprobación.\n\n¿Continuar?`,
     toastZplUploaded: (added, changes) => changes > 0
       ? `Mapeo actualizado. ${added} combinaciones nuevas agregadas, ${changes} cambios enviados a aprobación.`
       : `Mapeo actualizado. ${added} combinaciones nuevas agregadas.`,
-    toastZplUploadedBoth: (hotelsAdded, hotelsChanges, ptcCount) => hotelsChanges > 0
-      ? `Mapeo actualizado. Hoteles: ${hotelsAdded} nuevas, ${hotelsChanges} cambios enviados a aprobación. PTC: reemplazado con ${ptcCount} combinaciones.`
-      : `Mapeo actualizado. Hoteles: ${hotelsAdded} nuevas agregadas. PTC: reemplazado con ${ptcCount} combinaciones.`,
+    toastZplUploadedBoth: (added, changes) => changes > 0
+      ? `Mapeo actualizado (Hoteles + PTC). ${added} combinaciones nuevas agregadas, ${changes} cambios enviados a aprobación.`
+      : `Mapeo actualizado (Hoteles + PTC). ${added} combinaciones nuevas agregadas.`,
     zplBulkJustification: (filename, date) => `Actualización desde archivo ZPL_NEW_MAPPING (SE16N) "${filename}", cargado el ${date}. Estas combinaciones ya existían con otra línea P&L y el nuevo export muestra una distinta.`,
     bulkEmailSubject: (n, div) => `Aprobación de ${n} cambios de mapeo P&L — ${div}`,
     bulkEmailIntro: (n) => `Se identificaron ${n} combinaciones que ya tienen una línea P&L asignada y que, según la fuente más reciente, deberían apuntar a una línea distinta.`,
@@ -1042,7 +1042,7 @@ const I18N = {
     statPendingLabel: 'Pending',
     statReviewLabel: 'Needs review',
     stampLabel: 'Linked',
-    btnExportProd: 'Export CSV ↓',
+    btnExportProd: 'Export XLSX ↓',
     bannerTitle: 'Production combinations available',
     bannerTextAvailable: n => `PLB · Paraíso de la Bonita and WCA · Westin Cancún — ${n} GL Account × Cost Center combinations already mapped in the current system.`,
     bannerTextAvailablePtc: n => `${n} Account × Cost Center combinations from PTC's current manual mapping.`,
@@ -1148,18 +1148,18 @@ const I18N = {
     governanceEmailLabel: 'Approval email (data governance)',
     governanceEmailHint: 'Every change request is addressed here. Update it once the governance process has a definitive address.',
     zplUploadLabel: 'Hotels + PTC mapping — SAP table ZPL_NEW_MAPPING',
-    zplUploadHint: 'Export from transaction SE16N (Property Code, G/L Account From, Cost Center, Priority, Report Line). One file covers both Hotels (PLB/WCA) and Prime Travelers Club (PTC). Hotels: new combinations are added directly, line changes go to approval. PTC: each upload fully replaces existing combinations with the ones in this file.',
+    zplUploadHint: 'Export from transaction SE16N (Property Code, G/L Account From, Cost Center, Priority, Report Line). One file covers both Hotels (PLB/WCA) and Prime Travelers Club (PTC). For both divisions: new combinations are added directly, line changes go to approval.',
     zplStatusDefault: (count) => `Using the initial mapping bundled with the tool · ${count} combinations.`,
     masterStatusLinePtc: (count, date, filename) => `PTC: ${count} codes loaded · updated ${date} · ${filename}`,
     zplStatusDefaultPtc: (count) => `PTC: using the initial mapping bundled with the tool · ${count} combinations.`,
     confirmZplUpload: (total, added, changed) => `File with ${total} combinations.\n\n• ${added} are new and will be added directly.\n• ${changed} already exist with a different P&L line and will be sent for approval.\n\nContinue?`,
-    confirmZplUploadPtc: (hotelsTotal, hotelsAdded, hotelsChanged, ptcTotal) => `File with ${hotelsTotal + ptcTotal} combinations (${hotelsTotal} Hotels + ${ptcTotal} PTC).\n\nHotels: ${hotelsAdded} new will be added directly, ${hotelsChanged} changes will be sent for approval.\n\nPTC: the ${ptcTotal} combinations in this file will FULLY REPLACE the current PTC associations — any PTC combination not in this file will be deleted.\n\nContinue?`,
+    confirmZplUploadBoth: (hotelsTotal, hotelsAdded, hotelsChanged, ptcTotal, ptcAdded, ptcChanged) => `File with ${hotelsTotal + ptcTotal} combinations (${hotelsTotal} Hotels + ${ptcTotal} PTC).\n\nHotels: ${hotelsAdded} new will be added directly, ${hotelsChanged} changes will be sent for approval.\n\nPTC: ${ptcAdded} new will be added directly, ${ptcChanged} changes will be sent for approval.\n\nContinue?`,
     toastZplUploaded: (added, changes) => changes > 0
       ? `Mapping updated. ${added} new combinations added, ${changes} changes sent for approval.`
       : `Mapping updated. ${added} new combinations added.`,
-    toastZplUploadedBoth: (hotelsAdded, hotelsChanges, ptcCount) => hotelsChanges > 0
-      ? `Mapping updated. Hotels: ${hotelsAdded} new, ${hotelsChanges} changes sent for approval. PTC: replaced with ${ptcCount} combinations.`
-      : `Mapping updated. Hotels: ${hotelsAdded} new added. PTC: replaced with ${ptcCount} combinations.`,
+    toastZplUploadedBoth: (added, changes) => changes > 0
+      ? `Mapping updated (Hotels + PTC). ${added} new combinations added, ${changes} changes sent for approval.`
+      : `Mapping updated (Hotels + PTC). ${added} new combinations added.`,
     zplBulkJustification: (filename, date) => `Update from ZPL_NEW_MAPPING (SE16N) file "${filename}", uploaded on ${date}. These combinations already existed with a different P&L line and the new export shows a different one.`,
     bulkEmailSubject: (n, div) => `Approval for ${n} P&L mapping changes — ${div}`,
     bulkEmailIntro: (n) => `${n} combinations were identified that already have a P&L line assigned and, per the latest source, should point to a different one.`,
@@ -1965,8 +1965,11 @@ async function handleZplMappingUpload(file){
     const parsed = parseZplMappingSheet(rows);
     if(!parsed || parsed.length === 0) throw new Error('columns not found or no valid rows');
 
-    // Property Code routes each row to its division: PLB/WCA -> HOTELS
-    // (merge behavior, unchanged), PTC -> PTC (full replace behavior).
+    // Property Code routes each row to its division: PLB/WCA -> HOTELS,
+    // PTC -> PTC. Both now use the same merge behavior (new combinations
+    // added directly, line changes on existing ones sent for approval) —
+    // PTC's earlier "full replace" mode was only needed for the initial
+    // cleanup from placeholder data, which is done.
     // PTC's "property" column is always the literal string "PTC" itself,
     // not a real distinguishing property, so normalize it to '' to match
     // how the rest of the app treats PTC (hasProperty: false).
@@ -1975,46 +1978,32 @@ async function handleZplMappingUpload(file){
       .filter(r => r.p === 'PTC')
       .map(r => ({ p: '', a: r.a, c: r.c, l: r.l }));
 
-    const { toAdd, toChange } = diffProductionDataset('HOTELS', hotelsRows);
-    const proceedMsg = t('confirmZplUploadPtc',
-      hotelsRows.length.toLocaleString(locale()), toAdd.toLocaleString(locale()), toChange.toLocaleString(locale()),
-      ptcRows.length.toLocaleString(locale()));
+    const hotelsDiff = diffProductionDataset('HOTELS', hotelsRows);
+    const ptcDiff = diffProductionDataset('PTC', ptcRows);
+    const proceedMsg = t('confirmZplUploadBoth',
+      hotelsRows.length.toLocaleString(locale()), hotelsDiff.toAdd.toLocaleString(locale()), hotelsDiff.toChange.toLocaleString(locale()),
+      ptcRows.length.toLocaleString(locale()), ptcDiff.toAdd.toLocaleString(locale()), ptcDiff.toChange.toLocaleString(locale()));
     if(!confirm(proceedMsg)) return;
 
-    // --- HOTELS: existing merge behavior (add new, flag changes for approval) ---
-    const { added, review, changes } = runProductionImport('HOTELS', hotelsRows);
+    const hotelsResult = runProductionImport('HOTELS', hotelsRows);
     PRODUCTION_IMPORT_HOTELS = hotelsRows;
     zplMappingMeta = { filename: file.name, count: hotelsRows.length, updatedAt: Date.now() };
     await saveJSON('production:HOTELS', { meta: zplMappingMeta, data: hotelsRows }, true);
 
-    // --- PTC: full replace — this file becomes the entire PTC dataset.
-    // Every existing PTC association is dropped and rebuilt from this
-    // file, regardless of where the old one came from (bundled
-    // placeholder, a prior partial import, or manual entry).
-    associations = associations.filter(a => a.division !== 'PTC');
-    const now = Date.now();
-    const seenPtc = new Set();
-    ptcRows.forEach(row => {
-      const key = `${row.a}|${row.c}`;
-      if(seenPtc.has(key)) return; // guard against duplicate rows in the source file
-      seenPtc.add(key);
-      const resolved = resolveLine(row.l, 'PTC');
-      associations.push({
-        id: uid(), division: 'PTC', property: '', accCode: row.a, accDesc: SKAT_LOOKUP[row.a] || '',
-        ccCode: row.c, ccDesc: CSKS_LOOKUP[row.c] || '',
-        lineId: row.l, lineName: resolved.name, linePath: resolved.path,
-        status: resolved.status, reviewReason: resolved.reviewReason,
-        source: 'production_import', priority: '1', createdAt: now
-      });
-    });
+    const ptcResult = runProductionImport('PTC', ptcRows);
     PRODUCTION_IMPORT_PTC = ptcRows;
     zplMappingMetaPtc = { filename: file.name, count: ptcRows.length, updatedAt: Date.now() };
     await saveJSON('production:PTC', { meta: zplMappingMetaPtc, data: ptcRows }, true);
 
     await queueSaveAssociations();
 
-    if(changes.length > 0){
-      await queueBulkChange('HOTELS', changes,
+    if(hotelsResult.changes.length > 0){
+      await queueBulkChange('HOTELS', hotelsResult.changes,
+        t('zplBulkJustification', file.name, new Date().toLocaleDateString(locale())),
+        file.name);
+    }
+    if(ptcResult.changes.length > 0){
+      await queueBulkChange('PTC', ptcResult.changes,
         t('zplBulkJustification', file.name, new Date().toLocaleDateString(locale())),
         file.name);
     }
@@ -2024,7 +2013,9 @@ async function handleZplMappingUpload(file){
     renderAssociations();
     renderPendingChanges();
     updateStats();
-    showToast(t('toastZplUploadedBoth', added.toLocaleString(locale()), changes.length.toLocaleString(locale()), ptcRows.length.toLocaleString(locale())), changes.length > 0 ? 'danger' : 'success');
+    const totalAdded = hotelsResult.added + ptcResult.added;
+    const totalChanges = hotelsResult.changes.length + ptcResult.changes.length;
+    showToast(t('toastZplUploadedBoth', totalAdded.toLocaleString(locale()), totalChanges.toLocaleString(locale())), totalChanges > 0 ? 'danger' : 'success');
   }catch(err){
     console.error('ZPL upload error', err);
     showToast(t('toastMasterUploadError'), 'danger');
@@ -2960,21 +2951,41 @@ function downloadCsv(filename, rows){
   URL.revokeObjectURL(url);
 }
 
-/* Mirrors the exact column layout of the Production export the user
-   uploaded: Property Code, G/L Account From, Cost Center, Priority, Report Line */
+/* Mirrors the exact column layout SAP requires for the S/4 load (per the
+   reference file "2026-007-Royalton_PL_New_Mapping.xlsx"): Property,
+   Company, GL Acc From, GL Acc To, Cost Center, Dept From, Dept To,
+   Priority, Line, Department, Off Shore. Only Property, GL Acc From, Cost
+   Center, Priority, and Line are ever populated — the rest stay blank,
+   matching the reference file exactly (they're placeholder columns SAP's
+   template reserves for other load scenarios). */
 function exportProductionFormatCsv(){
   if(associations.length === 0){
     showToast(t('toastNoExport'), 'danger');
     return;
   }
-  const header = ['Division','Property Code','G/L Account From','Cost Center','Priority','Report Line'];
-  const csvRows = [header.join(',')];
+  if(typeof XLSX === 'undefined'){
+    console.error('XLSX library not loaded');
+    showToast(t('toastMasterUploadError'), 'danger');
+    return;
+  }
+  const header = ['Property','Company','GL Acc From','GL Acc To','Cost Center','Dept From','Dept To','Priority','Line','Department','Off Shore'];
+  const aoa = [header];
   sortedAssociations().forEach(r => {
-    const row = [r.division || '', r.property, r.accCode, r.ccCode, r.priority || '1', r.lineId]
-      .map(v => `"${String(v ?? '').replace(/"/g,'""')}"`);
-    csvRows.push(row.join(','));
+    // PTC rows are stored internally with property:'' (PTC has no real
+    // sub-properties), but SAP's source data used the literal code "PTC"
+    // in this column — restore it on the way out so the export matches
+    // what SAP actually expects to read back in.
+    const property = r.division === 'PTC' ? 'PTC' : (r.property || '');
+    aoa.push([
+      property, '', Number(r.accCode), '', r.ccCode, '', '',
+      Number(r.priority || 1), Number(r.lineId), '', ''
+    ]);
   });
-  downloadCsv('royalton_pl_combinaciones.csv', csvRows);
+  const ws = XLSX.utils.aoa_to_sheet(aoa);
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'Royalton PL Mapping ');
+  const stamp = new Date().toISOString().slice(0,10).replace(/-/g,'');
+  XLSX.writeFile(wb, `Royalton_PL_New_Mapping_${stamp}.xlsx`);
 }
 
 /* ===================== Stats ===================== */
