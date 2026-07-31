@@ -1724,6 +1724,7 @@ function applyDivision(division, opts){
     document.getElementById('inCcCode').value = '';
     document.getElementById('inCcDesc').value = '';
     updatePropertyHint();
+    renderQueue(); // keep the pending-queue list's "active" highlight in sync — it was never told selectedPendingId just got cleared here
   }
   selectedLine = null;
 
