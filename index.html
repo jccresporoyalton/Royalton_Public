@@ -524,6 +524,15 @@
     border:2px solid var(--line);border-top-color:var(--gold);
     animation:loadspin .8s linear infinite;
   }
+  .suggestion-banner{
+    display:flex; align-items:center; justify-content:space-between; gap:10px;
+    padding:8px 12px; margin-bottom:8px; border-radius:6px; font-size:12px;
+    border:1px solid var(--gold-line); background:var(--gold-soft); color:var(--ink);
+  }
+  .suggestion-banner.low-confidence{
+    border-color:var(--danger); background:rgba(185,28,28,0.08);
+  }
+  .suggestion-banner .suggestion-text b{ font-family:var(--mono); }
 </style>
 </head>
 <body>
@@ -628,6 +637,10 @@
       </div>
       <p class="leaf-only-hint" id="leafOnlyHint" style="display:none;" data-i18n="leafOnlyHint">Solo las líneas con código propio (resaltadas) se pueden seleccionar — las agrupaciones son solo de navegación.</p>
       <div class="breadcrumb" id="breadcrumb"><span class="placeholder" data-i18n="breadcrumbPlaceholder">Ninguna línea seleccionada todavía</span></div>
+      <div class="suggestion-banner" id="suggestionBanner" style="display:none;">
+        <div class="suggestion-text" id="suggestionText"></div>
+        <button type="button" class="btn-ghost" id="btnUseSuggestion" style="padding:4px 10px;font-size:11px;"></button>
+      </div>
       <div class="tree-scroll"><ul class="tree" id="treeRoot"></ul></div>
       <button class="btn-primary" id="btnConfirm" disabled data-i18n="btnConfirm">Confirmar asociación</button>
       <p class="sync-indicator" id="syncIndicator" style="display:none;font-size:12px;margin-top:6px;color:var(--ink-faint);">
@@ -967,6 +980,12 @@ const I18N = {
     toastNeedFields: 'Ingresa propiedad, cuenta y centro de costo',
     toastAddedQueue: 'Agregado a la cola de pendientes',
     toastSaved: 'Asociación guardada',
+    toastSavedNeedsApproval: 'Guardada, pendiente de aprobación — el patrón encontrado no es lo bastante claro, un master debe confirmarla.',
+    btnUseSuggestion: 'Usar sugerencia',
+    suggestionText: (name, id, pct, n) => `Sugerencia: <b>${id}</b> · ${name} — ${pct}% de acuerdo entre ${n} ubicaciones similares.`,
+    suggestionLowConfidenceNote: '(patrón poco claro — al confirmar, quedará pendiente de aprobación)',
+    suggestionNewRecord: '(combinación nueva)',
+    suggestionJustification: (pct, n) => `Sugerida automáticamente por patrón Ubicación × Departamento (${pct}% de acuerdo entre ${n} ubicaciones similares) — confianza insuficiente para confirmar sin revisión.`,
     toastUpdated: 'Asociación actualizada',
     toastNoValidRows: 'No se detectaron filas válidas para importar',
     toastImportedN: n => `${n} combinación(es) agregadas a la cola`,
@@ -1118,6 +1137,12 @@ const I18N = {
     toastNeedFields: 'Enter property, account and cost center',
     toastAddedQueue: 'Added to pending queue',
     toastSaved: 'Association saved',
+    toastSavedNeedsApproval: 'Saved, pending approval — the pattern found isn\'t clear enough, a master needs to confirm it.',
+    btnUseSuggestion: 'Use suggestion',
+    suggestionText: (name, id, pct, n) => `Suggestion: <b>${id}</b> · ${name} — ${pct}% agreement across ${n} similar locations.`,
+    suggestionLowConfidenceNote: '(unclear pattern — confirming will send it for approval)',
+    suggestionNewRecord: '(new combination)',
+    suggestionJustification: (pct, n) => `Auto-suggested via the Location × Department pattern (${pct}% agreement across ${n} similar locations) — not confident enough to confirm without review.`,
     toastUpdated: 'Association updated',
     toastNoValidRows: 'No valid rows detected to import',
     toastImportedN: n => `${n} combination(s) added to the queue`,
@@ -1499,6 +1524,7 @@ let nodeIndexByDivision = { HOTELS: {}, PTC: {} }; // division -> id -> {node, p
 let allNodesById = {};    // id -> {id, name, parent}  (Hotels' full dimension dump, for resolving codes outside the NET subtree)
 let expanded = new Set(['NET', 'PTC-NET']);
 let selectedLine = null;  // {id, name, path:[ids], pathNames:[names]}
+let currentSuggestion = null; // pattern-based line suggestion for the combo currently in the form (PTC only)
 let selectedPendingId = null;
 let editingId = null;
 let currentPage = 1;
@@ -1546,6 +1572,35 @@ function isNodeSelectable(node, division){
    For HOTELS: selectable NET subtree > known elsewhere in the full dimension
    (flagged for review) > not found at all (flagged for review).
    For other divisions: selectable tree > not found (no secondary dimension dump available). */
+/* PTC's cost centers follow a Location × Department pattern (e.g.
+   C001202002, V008202002 — same 6-digit department suffix across many
+   different location prefixes). Analysis of the SAP export showed that for
+   99% of (GL Account, Department) combos, every location agrees on the same
+   P&L line. This looks at existing confirmed associations to suggest a line
+   for a brand-new combination, before the person has to hunt for it in the
+   tree by hand. Returns null if the cost center isn't location-style, or if
+   there's no existing precedent (<2 other locations already mapped). */
+const PTC_LOCATION_CC_RE = /^([CV]\d{3})(\d{6})$/;
+function suggestPtcLine(accCode, ccCode){
+  const m = PTC_LOCATION_CC_RE.exec(ccCode || '');
+  if(!m) return null;
+  const dept = m[2];
+  const matches = associations.filter(a =>
+    a.division === 'PTC' && a.accCode === accCode && a.status === 'ok' &&
+    PTC_LOCATION_CC_RE.test(a.ccCode) && a.ccCode.slice(-6) === dept
+  );
+  if(matches.length < 2) return null;
+  const counts = {};
+  matches.forEach(a => { counts[a.lineId] = (counts[a.lineId] || 0) + 1; });
+  const [bestLineId, bestCount] = Object.entries(counts).sort((a,b) => b[1]-a[1])[0];
+  const entry = nodeIndexByDivision.PTC[bestLineId];
+  if(!entry) return null;
+  return {
+    lineId: bestLineId, lineName: entry.node.name, linePath: entry.pathNames.join(' › '),
+    confidence: bestCount / matches.length, sampleSize: matches.length
+  };
+}
+
 function resolveLine(lineId, division){
   const div = division || currentDivision;
   const idx = nodeIndexByDivision[div] || {};
@@ -1725,6 +1780,7 @@ function applyDivision(division, opts){
     document.getElementById('inCcDesc').value = '';
     updatePropertyHint();
     renderQueue(); // keep the pending-queue list's "active" highlight in sync — it was never told selectedPendingId just got cleared here
+    renderSuggestionBanner();
   }
   selectedLine = null;
 
@@ -2116,6 +2172,14 @@ function loadPendingIntoForm(id){
   document.getElementById('inCcDesc').value = item.ccDesc;
   updatePropertyHint();
   renderQueue();
+  renderSuggestionBanner();
+  // Pre-select a suggested line captured when this item was queued (or
+  // recompute fresh — more precedent may exist now than at import time).
+  const suggestion = currentSuggestion || (item.suggestedLineId ? {
+    lineId: item.suggestedLineId, lineName: item.suggestedLineName,
+    linePath: item.suggestedLinePath, confidence: item.suggestedConfidence, sampleSize: item.suggestedSampleSize
+  } : null);
+  if(suggestion) selectLine(suggestion.lineId);
   updateConfirmState();
 }
 
@@ -2189,6 +2253,26 @@ function renderBreadcrumb(){
 }
 
 /* ===================== Selection & confirm ===================== */
+function renderSuggestionBanner(){
+  const banner = document.getElementById('suggestionBanner');
+  const textEl = document.getElementById('suggestionText');
+  const btn = document.getElementById('btnUseSuggestion');
+  currentSuggestion = null;
+  if(currentDivision !== 'PTC'){ banner.style.display = 'none'; return; }
+  const accCode = document.getElementById('inAccCode').value.trim();
+  const ccCode = document.getElementById('inCcCode').value.trim();
+  if(!accCode || !ccCode){ banner.style.display = 'none'; return; }
+  const s = suggestPtcLine(accCode, ccCode);
+  if(!s){ banner.style.display = 'none'; return; }
+  currentSuggestion = s;
+  const lowConfidence = s.confidence < 0.8;
+  banner.classList.toggle('low-confidence', lowConfidence);
+  textEl.innerHTML = t('suggestionText', s.lineName, s.lineId, Math.round(s.confidence*100), s.sampleSize)
+    + (lowConfidence ? ` <span style="color:var(--danger);">${escapeHtml(t('suggestionLowConfidenceNote'))}</span>` : '');
+  btn.textContent = t('btnUseSuggestion');
+  banner.style.display = 'flex';
+}
+
 function selectLine(id){
   const entry = nodeIndexByDivision[currentDivision][id];
   if(!entry) return;
@@ -2270,14 +2354,41 @@ async function confirmAssociation(){
     return;
   }
 
-  associations.push({
+  // If the person is using a pattern-based suggestion that turned out to be
+  // low-confidence, don't commit it outright — add it so the work isn't
+  // lost, but hold it for a master to confirm, same as any other line
+  // change. A manual override (picking a different line than suggested) or
+  // a high-confidence suggestion skips this and commits directly.
+  const usingUncertainSuggestion = currentDivision === 'PTC' && currentSuggestion &&
+    selectedLine.id === currentSuggestion.lineId && currentSuggestion.confidence < 0.8;
+
+  const newRec = {
     id: uid(), division: currentDivision, property, accCode, accDesc, ccCode, ccDesc,
     lineId: selectedLine.id, lineName: selectedLine.name,
     linePath: selectedLine.pathNames.join(' › '),
-    status: 'ok', reviewReason: null, source: 'manual', priority: '1',
+    status: usingUncertainSuggestion ? 'review' : 'ok',
+    reviewReason: usingUncertainSuggestion ? 'pattern_uncertain' : null,
+    source: 'manual', priority: '1',
     createdAt: Date.now()
-  });
-  showToast(t('toastSaved'), 'success');
+  };
+  associations.push(newRec);
+
+  if(usingUncertainSuggestion){
+    pendingChanges.push({
+      id: uid(), associationId: newRec.id,
+      division: newRec.division, property: newRec.property,
+      accCode: newRec.accCode, accDesc: newRec.accDesc,
+      ccCode: newRec.ccCode, ccDesc: newRec.ccDesc,
+      oldLineId: null, oldLineName: t('suggestionNewRecord'), oldLinePath: '',
+      newLineId: newRec.lineId, newLineName: newRec.lineName, newLinePath: newRec.linePath,
+      justification: t('suggestionJustification', Math.round(currentSuggestion.confidence*100), currentSuggestion.sampleSize),
+      requestedBy: '', requestedAt: Date.now(), status: 'pending', resolvedAt: null
+    });
+    await saveJSON('governance:pending-changes', pendingChanges, true);
+    showToast(t('toastSavedNeedsApproval'), 'danger');
+  }else{
+    showToast(t('toastSaved'), 'success');
+  }
 
   // remember cost center for future autocomplete
   if(ccCode && !knownCC.some(c => c.division === currentDivision && c.code === ccCode && c.property === property)){
@@ -2297,6 +2408,7 @@ async function confirmAssociation(){
   renderQueue();
   renderFilterOptions();
   renderAssociations();
+  renderPendingChanges();
   updateStats();
 
   // Save in the background; a small indicator shows while it's in flight
@@ -2332,6 +2444,7 @@ function clearForm(){
   updatePropertyHint();
   renderTree();
   renderBreadcrumb();
+  renderSuggestionBanner();
   updateConfirmState();
 }
 
@@ -2552,7 +2665,16 @@ async function addPendingFromForm(){
     showToast(t('toastNeedFields'), 'danger');
     return;
   }
-  pending.push({id: uid(), division: currentDivision, property, accCode, accDesc, ccCode, ccDesc});
+  const pendingItem = {id: uid(), division: currentDivision, property, accCode, accDesc, ccCode, ccDesc};
+  if(currentDivision === 'PTC'){
+    const s = suggestPtcLine(accCode, ccCode);
+    if(s){
+      pendingItem.suggestedLineId = s.lineId; pendingItem.suggestedLineName = s.lineName;
+      pendingItem.suggestedLinePath = s.linePath; pendingItem.suggestedConfidence = s.confidence;
+      pendingItem.suggestedSampleSize = s.sampleSize;
+    }
+  }
+  pending.push(pendingItem);
   await saveJSON('assoc:pending', pending);
   renderQueue();
   updateStats();
@@ -2587,7 +2709,18 @@ async function importCsv(){
     showToast(t('toastNoValidRows'), 'danger');
     return;
   }
-  rows.forEach(r => pending.push({id: uid(), ...r}));
+  rows.forEach(r => {
+    const item = {id: uid(), ...r};
+    if(r.division === 'PTC'){
+      const s = suggestPtcLine(r.accCode, r.ccCode);
+      if(s){
+        item.suggestedLineId = s.lineId; item.suggestedLineName = s.lineName;
+        item.suggestedLinePath = s.linePath; item.suggestedConfidence = s.confidence;
+        item.suggestedSampleSize = s.sampleSize;
+      }
+    }
+    pending.push(item);
+  });
   await saveJSON('assoc:pending', pending);
   document.getElementById('csvInput').value = '';
   renderQueue();
@@ -3024,12 +3157,17 @@ function wireEvents(){
   document.getElementById('inAccCode').addEventListener('input', () => {
     const code = document.getElementById('inAccCode').value.trim();
     document.getElementById('inAccDesc').value = SKAT_LOOKUP[code] || '';
+    renderSuggestionBanner();
     updateConfirmState();
   });
   document.getElementById('inCcCode').addEventListener('input', () => {
     const code = document.getElementById('inCcCode').value.trim();
     document.getElementById('inCcDesc').value = CSKS_LOOKUP[code] || '';
+    renderSuggestionBanner();
     updateConfirmState();
+  });
+  document.getElementById('btnUseSuggestion').addEventListener('click', () => {
+    if(currentSuggestion) selectLine(currentSuggestion.lineId);
   });
 
   document.getElementById('langToggle').addEventListener('click', e => {
