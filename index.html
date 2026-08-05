@@ -519,6 +519,13 @@
     color:var(--ink-faint);font-size:11px;text-transform:uppercase;letter-spacing:.08em;
   }
   .sync-indicator{ display:flex; align-items:center; gap:6px; }
+  .bulk-action-bar{
+    display:flex; align-items:center; gap:10px; padding:8px 12px; margin-bottom:10px;
+    border-radius:6px; background:var(--gold-soft); border:1px solid var(--gold-line);
+    font-size:12px; color:var(--ink);
+  }
+  .bulk-action-bar button{ padding:5px 12px; font-size:11px; }
+  .cell-cc-desc{ color:var(--ink-faint); font-size:11px; margin-top:1px; }
   .sync-spinner{
     display:inline-block;width:11px;height:11px;border-radius:50%;
     border:2px solid var(--line);border-top-color:var(--gold);
@@ -653,15 +660,21 @@
   <div class="panel pending-panel" id="pendingChangesSection" style="display:none;">
     <h2><span data-i18n="pendingChangesTitle">Cambios pendientes de aprobación</span> <span class="count" id="pendingChangesCount">0</span></h2>
     <p class="admin-hint" data-i18n="pendingChangesHint">Estos cambios ya se enviaron a gobierno de datos por correo pero todavía no se aplican. Alguien con autoridad de aprobación debe confirmarlos aquí.</p>
+    <div class="bulk-action-bar" id="pendingBulkBar" style="display:none;">
+      <span id="pendingBulkCount"></span>
+      <button class="edit" id="btnBulkApprove"></button>
+      <button class="del" id="btnBulkReject"></button>
+    </div>
     <div style="overflow-x:auto;">
       <table class="assoc">
         <thead>
           <tr>
-            <th style="width:16%;" data-i18n="thCombo">Combinación</th>
-            <th style="width:20%;" data-i18n="thOldLine">Línea actual</th>
-            <th style="width:20%;" data-i18n="thNewLine">Línea propuesta</th>
-            <th style="width:24%;" data-i18n="thJustification">Justificación</th>
-            <th style="width:10%;" data-i18n="thDate">Fecha</th>
+            <th style="width:3%;"><input type="checkbox" id="pendingSelectAll"></th>
+            <th style="width:15%;" data-i18n="thCombo">Combinación</th>
+            <th style="width:18%;" data-i18n="thOldLine">Línea actual</th>
+            <th style="width:18%;" data-i18n="thNewLine">Línea propuesta</th>
+            <th style="width:23%;" data-i18n="thJustification">Justificación</th>
+            <th style="width:9%;" data-i18n="thDate">Fecha</th>
             <th style="width:10%;" data-i18n="thActions">Acciones</th>
           </tr>
         </thead>
@@ -1003,6 +1016,13 @@ const I18N = {
     toastApprovalRequested: 'Solicitud enviada. Se abrió tu cliente de correo con el mensaje listo — confirma el envío ahí.',
     toastChangeApproved: 'Cambio aprobado y aplicado',
     toastChangeRejected: 'Solicitud de cambio rechazada',
+    pendingBulkSelectedCount: (n) => `${n} seleccionado(s)`,
+    btnBulkApprove: 'Aprobar seleccionados',
+    btnBulkReject: 'Rechazar seleccionados',
+    confirmBulkApprove: (n) => `¿Aprobar y aplicar ${n} cambio(s) seleccionado(s)? Esto actualiza las asociaciones correspondientes de inmediato.`,
+    confirmBulkReject: (n) => `¿Rechazar ${n} cambio(s) seleccionado(s)?`,
+    toastBulkApproved: (n) => `${n} cambio(s) aprobado(s) y aplicado(s)`,
+    toastBulkRejected: (n) => `${n} cambio(s) rechazado(s)`,
     toastAlreadyPending: 'Esta fila ya tiene un cambio esperando aprobación. Resuélvelo primero abajo.',
     toastJustificationTooShort: 'Escribe una justificación un poco más detallada (mínimo 10 caracteres)',
     toastGovernanceEmailSaved: 'Correo de aprobación actualizado',
@@ -1160,6 +1180,13 @@ const I18N = {
     toastApprovalRequested: 'Request sent. Your email client opened with the message ready — confirm sending it there.',
     toastChangeApproved: 'Change approved and applied',
     toastChangeRejected: 'Change request rejected',
+    pendingBulkSelectedCount: (n) => `${n} selected`,
+    btnBulkApprove: 'Approve selected',
+    btnBulkReject: 'Reject selected',
+    confirmBulkApprove: (n) => `Approve and apply ${n} selected change(s)? This updates the corresponding associations right away.`,
+    confirmBulkReject: (n) => `Reject ${n} selected change(s)?`,
+    toastBulkApproved: (n) => `${n} change(s) approved and applied`,
+    toastBulkRejected: (n) => `${n} change(s) rejected`,
     toastAlreadyPending: 'This row already has a change waiting for approval. Resolve it below first.',
     toastJustificationTooShort: 'Write a bit more detail in the justification (10 characters minimum)',
     toastGovernanceEmailSaved: 'Approval email address updated',
@@ -2564,19 +2591,26 @@ function downloadBulkChangeDetail(id){
   downloadCsv(`cambios_pendientes_${change.id}.csv`, rows);
 }
 
+let selectedPendingChangeIds = new Set();
+
 function renderPendingChanges(){
   const section = document.getElementById('pendingChangesSection');
   const list = pendingChanges.filter(c => c.status === 'pending');
   const totalChangeCount = list.reduce((n, c) => n + (c.type === 'bulk_import' ? c.changes.length : 1), 0);
   document.getElementById('pendingChangesCount').textContent = totalChangeCount;
   section.style.display = list.length > 0 ? 'block' : 'none';
-  if(list.length === 0) return;
+  // Drop selections for anything no longer pending (approved/rejected elsewhere, e.g. another tab)
+  const liveIds = new Set(list.map(c => c.id));
+  selectedPendingChangeIds.forEach(id => { if(!liveIds.has(id)) selectedPendingChangeIds.delete(id); });
+  if(list.length === 0){ renderPendingBulkBar(); return; }
 
   const tbody = document.getElementById('pendingChangesBody');
   tbody.innerHTML = list.slice().sort((a,b) => b.requestedAt - a.requestedAt).map(c => {
+    const checked = selectedPendingChangeIds.has(c.id) ? 'checked' : '';
     if(c.type === 'bulk_import'){
       return `
     <tr data-pending="${c.id}">
+      <td><input type="checkbox" data-pending-check="${c.id}" ${checked}></td>
       <td><span class="prop-badge ${propClass(c.division)}">${escapeHtml((DIVISIONS[c.division]&&DIVISIONS[c.division].label)||c.division)}</span>
         <div class="cell-desc">${escapeHtml(t('bulkChangeSummary', c.changes.length))}</div></td>
       <td colspan="2"><button class="btn-ghost" data-download-bulk="${c.id}" style="padding:4px 10px;font-size:11px;">${escapeHtml(t('btnDownloadDetail'))}</button></td>
@@ -2588,10 +2622,17 @@ function renderPendingChanges(){
       </td>
     </tr>`;
     }
+    // Individual changes may predate the accDesc/ccDesc fields, or the
+    // master data may have been updated since — look up live so the
+    // description is never stale.
+    const accDesc = c.accDesc || SKAT_LOOKUP[c.accCode] || '';
+    const ccDesc = c.ccDesc || CSKS_LOOKUP[c.ccCode] || '';
     return `
     <tr data-pending="${c.id}">
+      <td><input type="checkbox" data-pending-check="${c.id}" ${checked}></td>
       <td><span class="prop-badge ${propClass(c.division)}">${escapeHtml((DIVISIONS[c.division]&&DIVISIONS[c.division].label)||c.division)}</span>
-        <div class="cell-desc">${escapeHtml(c.property ? c.property+' · ' : '')}${escapeHtml(c.accCode)} / ${escapeHtml(c.ccCode)}</div></td>
+        <div class="cell-desc">${escapeHtml(c.property ? c.property+' · ' : '')}${escapeHtml(c.accCode)} / ${escapeHtml(c.ccCode)}</div>
+        <div class="cell-cc-desc">${escapeHtml(accDesc)}${accDesc && ccDesc ? ' · ' : ''}${escapeHtml(ccDesc)}</div></td>
       <td>${escapeHtml(c.oldLineName || c.oldLineId)} <span class="code-badge">${escapeHtml(c.oldLineId)}</span></td>
       <td>${escapeHtml(c.newLineName)} <span class="code-badge">${escapeHtml(c.newLineId)}</span></td>
       <td class="cell-desc">${escapeHtml(c.justification)}${c.requestedBy ? `<div class="path-trail">${escapeHtml(t('pendingRequestedBy'))}: ${escapeHtml(c.requestedBy)}</div>` : ''}</td>
@@ -2602,14 +2643,25 @@ function renderPendingChanges(){
       </td>
     </tr>`;
   }).join('');
+  document.getElementById('pendingSelectAll').checked = list.length > 0 && list.every(c => selectedPendingChangeIds.has(c.id));
+  renderPendingBulkBar();
 }
 
-async function approveChange(id){
-  const change = pendingChanges.find(c => c.id === id && c.status === 'pending');
-  if(!change) return;
+function renderPendingBulkBar(){
+  const bar = document.getElementById('pendingBulkBar');
+  const n = selectedPendingChangeIds.size;
+  if(n === 0){ bar.style.display = 'none'; return; }
+  bar.style.display = 'flex';
+  document.getElementById('pendingBulkCount').textContent = t('pendingBulkSelectedCount', n);
+  document.getElementById('btnBulkApprove').textContent = t('btnBulkApprove');
+  document.getElementById('btnBulkReject').textContent = t('btnBulkReject');
+}
 
+/* Mutates associations/change status for one approval — no confirm, no
+   save, no render, so bulk operations can loop this and do a single
+   confirm + save + render at the end instead of one per item. */
+function applyApproval(change){
   if(change.type === 'bulk_import'){
-    if(!confirm(t('confirmApproveBulk', change.changes.length))) return;
     change.changes.forEach(c => {
       const rec = associations.find(a => a.id === c.associationId);
       if(rec){
@@ -2618,7 +2670,6 @@ async function approveChange(id){
       }
     });
   } else {
-    if(!confirm(t('confirmApprove', change.newLineName))) return;
     const rec = associations.find(a => a.id === change.associationId);
     if(rec){
       rec.division = change.division; rec.property = change.property;
@@ -2628,9 +2679,20 @@ async function approveChange(id){
       rec.status = 'ok'; rec.reviewReason = null;
     }
   }
-
   change.status = 'approved';
   change.resolvedAt = Date.now();
+}
+function applyRejection(change){
+  change.status = 'rejected';
+  change.resolvedAt = Date.now();
+}
+
+async function approveChange(id){
+  const change = pendingChanges.find(c => c.id === id && c.status === 'pending');
+  if(!change) return;
+  const msg = change.type === 'bulk_import' ? t('confirmApproveBulk', change.changes.length) : t('confirmApprove', change.newLineName);
+  if(!confirm(msg)) return;
+  applyApproval(change);
   await queueSaveAssociations();
   await saveJSON('governance:pending-changes', pendingChanges, true);
   renderPendingChanges();
@@ -2645,12 +2707,40 @@ async function rejectChange(id){
   if(!change) return;
   const msg = change.type === 'bulk_import' ? t('confirmRejectBulk', change.changes.length) : t('confirmReject');
   if(!confirm(msg)) return;
-  change.status = 'rejected';
-  change.resolvedAt = Date.now();
+  applyRejection(change);
   await saveJSON('governance:pending-changes', pendingChanges, true);
   renderPendingChanges();
   renderAssociations();
   showToast(t('toastChangeRejected'));
+}
+
+async function bulkApproveSelected(){
+  const ids = Array.from(selectedPendingChangeIds);
+  const changes = ids.map(id => pendingChanges.find(c => c.id === id && c.status === 'pending')).filter(Boolean);
+  if(changes.length === 0) return;
+  if(!confirm(t('confirmBulkApprove', changes.length))) return;
+  changes.forEach(applyApproval);
+  selectedPendingChangeIds.clear();
+  await queueSaveAssociations();
+  await saveJSON('governance:pending-changes', pendingChanges, true);
+  renderPendingChanges();
+  renderFilterOptions();
+  renderAssociations();
+  updateStats();
+  showToast(t('toastBulkApproved', changes.length), 'success');
+}
+
+async function bulkRejectSelected(){
+  const ids = Array.from(selectedPendingChangeIds);
+  const changes = ids.map(id => pendingChanges.find(c => c.id === id && c.status === 'pending')).filter(Boolean);
+  if(changes.length === 0) return;
+  if(!confirm(t('confirmBulkReject', changes.length))) return;
+  changes.forEach(applyRejection);
+  selectedPendingChangeIds.clear();
+  await saveJSON('governance:pending-changes', pendingChanges, true);
+  renderPendingChanges();
+  renderAssociations();
+  showToast(t('toastBulkRejected', changes.length));
 }
 
 /* ===================== Pending add / import ===================== */
@@ -3263,6 +3353,23 @@ function wireEvents(){
     const downloadBtn = e.target.closest('[data-download-bulk]');
     if(downloadBtn){ downloadBulkChangeDetail(downloadBtn.getAttribute('data-download-bulk')); }
   });
+  document.getElementById('pendingChangesBody').addEventListener('change', e => {
+    const check = e.target.closest('[data-pending-check]');
+    if(!check) return;
+    const id = check.getAttribute('data-pending-check');
+    if(check.checked) selectedPendingChangeIds.add(id); else selectedPendingChangeIds.delete(id);
+    document.getElementById('pendingSelectAll').checked =
+      pendingChanges.filter(c => c.status === 'pending').every(c => selectedPendingChangeIds.has(c.id));
+    renderPendingBulkBar();
+  });
+  document.getElementById('pendingSelectAll').addEventListener('change', e => {
+    const list = pendingChanges.filter(c => c.status === 'pending');
+    if(e.target.checked) list.forEach(c => selectedPendingChangeIds.add(c.id));
+    else selectedPendingChangeIds.clear();
+    renderPendingChanges();
+  });
+  document.getElementById('btnBulkApprove').addEventListener('click', bulkApproveSelected);
+  document.getElementById('btnBulkReject').addEventListener('click', bulkRejectSelected);
 
   document.getElementById('btnApprovalSubmit').addEventListener('click', submitApprovalRequest);
   document.getElementById('btnApprovalCancel').addEventListener('click', closeApprovalModal);
